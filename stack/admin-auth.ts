@@ -1,6 +1,6 @@
-import type { CurrentServerUser } from "@stackframe/stack";
+import type { CurrentServerUser } from "@hexclave/next";
 import { redirect } from "next/navigation";
-import { stackServerApp } from "./server";
+import { getStackServerApp } from "./server";
 
 const ADMIN_ROLE = "admin";
 const configuredAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() ?? "";
@@ -30,6 +30,12 @@ export function isAdminUser(user: CurrentServerUser | null) {
 }
 
 export async function getAdminUser() {
+  const stackServerApp = getStackServerApp();
+
+  if (!stackServerApp) {
+    return null;
+  }
+
   const user = await stackServerApp.getUser();
   return isAdminUser(user) ? user : null;
 }

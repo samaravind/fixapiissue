@@ -1,4 +1,5 @@
-import { queryGeneric, mutationGeneric, type Id } from "convex/server";
+import { queryGeneric, mutationGeneric } from "convex/server";
+import type { GenericId as Id } from "convex/values";
 import { categories as defaultCategories, categorySlug } from "../app/store-data";
 
 type CategoryInput = {

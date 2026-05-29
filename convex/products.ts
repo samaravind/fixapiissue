@@ -1,4 +1,5 @@
-import { mutationGeneric, queryGeneric, type Id } from "convex/server";
+import { mutationGeneric, queryGeneric } from "convex/server";
+import type { GenericId as Id } from "convex/values";
 import { catalog, categorySlug, type Product } from "../app/store-data";
 import { uniqueSlug } from "./utils";
 
@@ -47,6 +48,11 @@ type ProductDocument = {
   badge?: string;
   createdAt: number;
   updatedAt: number;
+};
+
+type CategoryDocument = {
+  slug: string;
+  name: string;
 };
 
 type ProductInput = {

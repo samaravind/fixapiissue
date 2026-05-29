@@ -6,11 +6,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api, convexEnabled } from "../lib/convex";
+import { Drawer } from "../components/drawer";
 import { buildSlug, catalog, categories, categorySlug, CUSTOM_CATEGORIES_KEY } from "./store-data";
 export { buildSlug, catalog, CUSTOM_CATEGORIES_KEY } from "./store-data";
 export type { Product } from "./store-data";
 
 const PRODUCTS_STORAGE_KEY = "fixx-products";
+const DELIVERY_ADDRESS_STORAGE_KEY = "fixx-delivery-address";
+const PINNED_LOCATION_STORAGE_KEY = "fixx-pinned-location";
 
 type MenuCategory = {
   label: string;
@@ -65,6 +68,39 @@ type ProductCard = {
   image?: string;
   badge?: string;
   categoryLabel: string;
+};
+
+type DeliveryAddress = {
+  fullName: string;
+  phone: string;
+  line1: string;
+  line2: string;
+  landmark: string;
+  city: string;
+  state: string;
+  pincode: string;
+};
+
+type PinnedLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+};
+
+type MapPoint = {
+  x: number;
+  y: number;
+};
+
+const DEFAULT_DELIVERY_ADDRESS: DeliveryAddress = {
+  fullName: "",
+  phone: "",
+  line1: "",
+  line2: "",
+  landmark: "",
+  city: "Chennai",
+  state: "Tamil Nadu",
+  pincode: "600049",
 };
 
 function mapStaticCategories(): MenuCategory[] {
@@ -151,6 +187,104 @@ function readStoredProducts(): ProductDoc[] {
   } catch {
     return [];
   }
+}
+
+function readStoredDeliveryAddress(): DeliveryAddress {
+  if (typeof window === "undefined") {
+    return DEFAULT_DELIVERY_ADDRESS;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DELIVERY_ADDRESS_STORAGE_KEY);
+    if (!raw) {
+      return DEFAULT_DELIVERY_ADDRESS;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<DeliveryAddress>;
+    return {
+      fullName: parsed.fullName?.trim() || DEFAULT_DELIVERY_ADDRESS.fullName,
+      phone: parsed.phone?.trim() || DEFAULT_DELIVERY_ADDRESS.phone,
+      line1: parsed.line1?.trim() || DEFAULT_DELIVERY_ADDRESS.line1,
+      line2: parsed.line2?.trim() || DEFAULT_DELIVERY_ADDRESS.line2,
+      landmark: parsed.landmark?.trim() || DEFAULT_DELIVERY_ADDRESS.landmark,
+      city: parsed.city?.trim() || DEFAULT_DELIVERY_ADDRESS.city,
+      state: parsed.state?.trim() || DEFAULT_DELIVERY_ADDRESS.state,
+      pincode: parsed.pincode?.trim() || DEFAULT_DELIVERY_ADDRESS.pincode,
+    };
+  } catch {
+    return DEFAULT_DELIVERY_ADDRESS;
+  }
+}
+
+function readStoredPinnedLocation(): PinnedLocation | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PINNED_LOCATION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PinnedLocation>;
+    if (typeof parsed.latitude !== "number" || typeof parsed.longitude !== "number") {
+      return null;
+    }
+
+    return {
+      latitude: parsed.latitude,
+      longitude: parsed.longitude,
+      accuracy: typeof parsed.accuracy === "number" ? parsed.accuracy : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatDeliveryLocation(address: DeliveryAddress) {
+  return `${address.city || "Chennai"} ${address.pincode || "600049"}`.trim();
+}
+
+function formatDeliverySummary(address: DeliveryAddress) {
+  const parts = [address.line1, address.line2, address.landmark].filter((part) => part.trim().length > 0);
+  return parts.length > 0 ? parts.join(", ") : "Add your delivery address";
+}
+
+function formatPinnedLocation(location: PinnedLocation | null) {
+  if (!location) {
+    return "No location pinned yet";
+  }
+
+  return `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function mapPointToPinnedLocation(point: MapPoint): PinnedLocation {
+  const centerLatitude = 13.0827;
+  const centerLongitude = 80.2707;
+  const latitudeDelta = (50 - point.y) * 0.004;
+  const longitudeDelta = (point.x - 50) * 0.004;
+
+  return {
+    latitude: centerLatitude + latitudeDelta,
+    longitude: centerLongitude + longitudeDelta,
+  };
+}
+
+function pinnedLocationToMapPoint(location: PinnedLocation): MapPoint {
+  const centerLatitude = 13.0827;
+  const centerLongitude = 80.2707;
+  const x = 50 + (location.longitude - centerLongitude) / 0.004;
+  const y = 50 - (location.latitude - centerLatitude) / 0.004;
+
+  return {
+    x: clamp(x, 8, 92),
+    y: clamp(y, 8, 92),
+  };
 }
 
 function mapFallbackProducts(categoryLabel: string) {
@@ -262,6 +396,36 @@ function IconMenu() {
   );
 }
 
+function IconLocationPin() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#2874f0]" fill="none" stroke="currentColor" strokeWidth="2">
+      <path
+        d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="10" r="2.25" />
+    </svg>
+  );
+}
+
+function IconChevronRight() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconPinTarget() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5 text-white" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="10" r="2.25" />
+    </svg>
+  );
+}
+
 function ProductFrame({
   src,
   alt,
@@ -307,6 +471,15 @@ export default function HomePage() {
   const [currentUser, setCurrentUser] = useState("");
   const [customCategories, setCustomCategories] = useState<MenuCategory[]>([]);
   const [localProducts, setLocalProducts] = useState<ProductDoc[]>([]);
+  const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddress>(DEFAULT_DELIVERY_ADDRESS);
+  const [addressDraft, setAddressDraft] = useState<DeliveryAddress>(DEFAULT_DELIVERY_ADDRESS);
+  const [isAddressDrawerOpen, setIsAddressDrawerOpen] = useState(false);
+  const [isLocationSheetOpen, setIsLocationSheetOpen] = useState(false);
+  const [isLocationPinned, setIsLocationPinned] = useState(false);
+  const [isMapPopupOpen, setIsMapPopupOpen] = useState(false);
+  const [pinnedLocation, setPinnedLocation] = useState<PinnedLocation | null>(null);
+  const [manualPinPoint, setManualPinPoint] = useState<MapPoint>({ x: 50, y: 50 });
+  const isSignedIn = Boolean(currentUser.trim());
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const liveCategories = convexEnabled ? (useQuery(api.categories.getAll) as CategoryDoc[] | undefined) : undefined;
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -425,6 +598,131 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const storedAddress = readStoredDeliveryAddress();
+      setDeliveryAddress(storedAddress);
+      setAddressDraft(storedAddress);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const storedPinnedLocation = readStoredPinnedLocation();
+      if (storedPinnedLocation) {
+        setPinnedLocation(storedPinnedLocation);
+        setIsLocationPinned(true);
+        setManualPinPoint(pinnedLocationToMapPoint(storedPinnedLocation));
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function openAddressDrawer() {
+    setAddressDraft(deliveryAddress);
+    setIsAddressDrawerOpen(false);
+    setIsLocationSheetOpen(true);
+  }
+
+  function closeAddressDrawer() {
+    setIsAddressDrawerOpen(false);
+    setIsLocationSheetOpen(false);
+  }
+
+  function updateDraftField(field: keyof DeliveryAddress, value: string) {
+    setAddressDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function saveAddress() {
+    const nextAddress: DeliveryAddress = {
+      fullName: addressDraft.fullName.trim(),
+      phone: addressDraft.phone.trim(),
+      line1: addressDraft.line1.trim(),
+      line2: addressDraft.line2.trim(),
+      landmark: addressDraft.landmark.trim(),
+      city: addressDraft.city.trim() || "Chennai",
+      state: addressDraft.state.trim() || "Tamil Nadu",
+      pincode: addressDraft.pincode.trim() || "600049",
+    };
+
+    setDeliveryAddress(nextAddress);
+    setIsLocationPinned(true);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DELIVERY_ADDRESS_STORAGE_KEY, JSON.stringify(nextAddress));
+    }
+
+    setIsAddressDrawerOpen(false);
+    setIsLocationSheetOpen(false);
+  }
+
+  function openMapPopup() {
+    setIsLocationSheetOpen(false);
+    setIsMapPopupOpen(true);
+  }
+
+  function closeMapPopup() {
+    setIsMapPopupOpen(false);
+  }
+
+  function pinCurrentLocation() {
+    if (typeof window === "undefined" || !window.navigator.geolocation) {
+      return;
+    }
+
+    window.navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextPinnedLocation: PinnedLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        };
+
+        setPinnedLocation(nextPinnedLocation);
+        setIsLocationPinned(true);
+        setManualPinPoint(pinnedLocationToMapPoint(nextPinnedLocation));
+
+        window.localStorage.setItem(PINNED_LOCATION_STORAGE_KEY, JSON.stringify(nextPinnedLocation));
+      },
+      () => {
+        const fallbackPinnedLocation: PinnedLocation = {
+          latitude: 13.0827,
+          longitude: 80.2707,
+        };
+
+        setPinnedLocation(fallbackPinnedLocation);
+        setIsLocationPinned(true);
+        setManualPinPoint(pinnedLocationToMapPoint(fallbackPinnedLocation));
+        window.localStorage.setItem(PINNED_LOCATION_STORAGE_KEY, JSON.stringify(fallbackPinnedLocation));
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  }
+
+  function saveManualPinPoint() {
+    const nextPinnedLocation = mapPointToPinnedLocation(manualPinPoint);
+    setPinnedLocation(nextPinnedLocation);
+    setIsLocationPinned(true);
+    window.localStorage.setItem(PINNED_LOCATION_STORAGE_KEY, JSON.stringify(nextPinnedLocation));
+  }
+
+  function handleAccountClick() {
+    if (!currentUser.trim()) {
+      router.push("/login");
+      return;
+    }
+
+    window.localStorage.removeItem("fixx-current-user");
+    setCurrentUser("");
+    window.dispatchEvent(new Event("storage"));
+  }
+
   return (
     <main className="min-h-screen text-slate-900">
       <header className="sticky top-0 z-40 border-b border-[#e4e7ed] bg-white/95 backdrop-blur">
@@ -443,6 +741,23 @@ export default function HomePage() {
             </div>
           </Link>
 
+          <button
+            type="button"
+            onClick={openAddressDrawer}
+            className="hidden min-w-[220px] items-center gap-3 rounded-2xl border border-transparent px-3 py-2 text-left transition hover:border-[#dfe3eb] hover:bg-[#f8fafc] md:flex"
+            aria-label="Update delivery location"
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef4ff]">
+              <IconLocationPin />
+            </span>
+            <span className="min-w-0 leading-tight">
+              <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                Delivering to {formatDeliveryLocation(deliveryAddress)}
+              </span>
+              <span className="block text-sm font-semibold text-slate-900">Update location</span>
+            </span>
+          </button>
+
           <label className="flex flex-1 items-center gap-3 rounded-full border border-[#dfe3eb] bg-[#f5f7fa] px-4 py-3 shadow-sm focus-within:border-[#2874f0] focus-within:bg-white">
             <IconSearch />
             <input
@@ -453,9 +768,14 @@ export default function HomePage() {
           </label>
 
           <div className="hidden items-center gap-2 lg:flex">
-            <Link href="/login" className="rounded-full px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            <button
+              type="button"
+              onClick={handleAccountClick}
+              className="rounded-full px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              title={currentUser ? "Sign out" : "Sign in"}
+            >
               {currentUser || "Login"}
-            </Link>
+            </button>
             <button type="button" onClick={() => router.push("/wishlist")} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#f1f5ff] hover:bg-[#e5edff]">
               <IconHeart />
             </button>
@@ -493,7 +813,14 @@ export default function HomePage() {
               <div className="relative mx-auto w-full max-w-[420px]">
                 <div className="rounded-[2rem] bg-gradient-to-br from-[#edf4ff] via-[#eaf1ff] to-[#dfe9fc] p-4 shadow-[0_18px_50px_rgba(15,23,42,0.15)]">
                   <div className="overflow-hidden rounded-[1.5rem] bg-white p-3">
-                    <Image src={hero.image} alt={hero.title} width={800} height={500} className="h-[250px] w-full object-cover" />
+                    <Image
+                      src={hero.image}
+                      alt={hero.title}
+                      width={800}
+                      height={500}
+                      priority={hero.image === spotlight[0].image}
+                      className="h-[250px] w-full object-cover"
+                    />
                   </div>
                 </div>
                 <div className="absolute -bottom-4 left-4 rounded-2xl bg-white px-4 py-3 shadow-lg">
@@ -626,6 +953,530 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {false && isLocationSheetOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close delivery address panel"
+            className="absolute inset-0 bg-black/40"
+            onClick={closeAddressDrawer}
+          />
+
+          <div className="absolute right-0 top-0 h-full w-full max-w-md overflow-hidden bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#e6ebf2] px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Delivery address</h2>
+              <button
+                type="button"
+                onClick={closeAddressDrawer}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#e6ebf2] text-slate-500 transition hover:bg-slate-50"
+                aria-label="Close"
+              >
+                <IconChevronRight />
+              </button>
+            </div>
+
+            <form
+              className="h-[calc(100%-65px)] overflow-y-auto px-4 py-4 sm:px-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveAddress();
+              }}
+            >
+              <div className="rounded-[1.5rem] border border-[#e5eaf2] bg-[#f8fbff] p-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2874f0]">
+                    <IconPinTarget />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900">Currently delivering to</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      {formatDeliveryLocation(deliveryAddress)}{" · "}{formatDeliverySummary(deliveryAddress)}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                      Add or update the address where you want your orders delivered.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center gap-3 rounded-2xl border border-dashed border-[#cdd8e6] bg-white px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsLocationPinned((current) => !current)}
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition ${
+                      isLocationPinned ? "bg-emerald-500" : "bg-[#2874f0]"
+                    }`}
+                    aria-label={isLocationPinned ? "Unpin location" : "Pin location"}
+                  >
+                    <IconLocationPin />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {isLocationPinned ? "Location pinned" : "Pin delivery location"}
+                    </p>
+                    <p className="text-xs leading-5 text-slate-500">
+                      {isLocationPinned ? "Your drop point is set for this delivery." : "Tap to mark your delivery point."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4">
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Full name</span>
+                  <input
+                    type="text"
+                    value={addressDraft.fullName}
+                    onChange={(event) => updateDraftField("fullName", event.target.value)}
+                    placeholder="Your name"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Phone number</span>
+                  <input
+                    type="tel"
+                    value={addressDraft.phone}
+                    onChange={(event) => updateDraftField("phone", event.target.value)}
+                    placeholder="10-digit mobile number"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Address line 1</span>
+                  <input
+                    type="text"
+                    value={addressDraft.line1}
+                    onChange={(event) => updateDraftField("line1", event.target.value)}
+                    placeholder="House no, street"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Address line 2</span>
+                  <input
+                    type="text"
+                    value={addressDraft.line2}
+                    onChange={(event) => updateDraftField("line2", event.target.value)}
+                    placeholder="Area, locality"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Landmark</span>
+                  <input
+                    type="text"
+                    value={addressDraft.landmark}
+                    onChange={(event) => updateDraftField("landmark", event.target.value)}
+                    placeholder="Nearby landmark"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-slate-700">City</span>
+                    <input
+                      type="text"
+                      value={addressDraft.city}
+                      onChange={(event) => updateDraftField("city", event.target.value)}
+                      placeholder="City"
+                      className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                    />
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-slate-700">State</span>
+                    <input
+                      type="text"
+                      value={addressDraft.state}
+                      onChange={(event) => updateDraftField("state", event.target.value)}
+                      placeholder="State"
+                      className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                    />
+                  </label>
+                </div>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-slate-700">Pincode</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={addressDraft.pincode}
+                    onChange={(event) => updateDraftField("pincode", event.target.value)}
+                    placeholder="600049"
+                    className="rounded-[1.25rem] border border-[#dbe3ee] bg-white px-4 py-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                  />
+                </label>
+              </div>
+
+              <div className="sticky bottom-0 mt-5 flex gap-3 border-t border-[#eef2f7] bg-white/95 py-4 backdrop-blur">
+                <button
+                  type="button"
+                  onClick={closeAddressDrawer}
+                  className="flex-1 rounded-full border border-[#dbe3ee] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-full bg-[#2874f0] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1f5fc1]"
+                >
+                  Save address
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {false && (
+      <Drawer open={isAddressDrawerOpen} onClose={closeAddressDrawer} title="Delivery address">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveAddress();
+          }}
+        >
+          <div className="rounded-2xl border border-[#e5e7eb] bg-[#f8fafc] p-4 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Currently delivering to</p>
+            <p className="mt-1 text-slate-600">
+              {formatDeliveryLocation(deliveryAddress)} · {formatDeliverySummary(deliveryAddress)}
+            </p>
+            <p className="mt-3">Add or update the address where you want your orders delivered.</p>
+          </div>
+
+          <div className="grid gap-4">
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Full name</span>
+              <input
+                type="text"
+                value={addressDraft.fullName}
+                onChange={(event) => updateDraftField("fullName", event.target.value)}
+                placeholder="Your name"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Phone number</span>
+              <input
+                type="tel"
+                value={addressDraft.phone}
+                onChange={(event) => updateDraftField("phone", event.target.value)}
+                placeholder="10-digit mobile number"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Address line 1</span>
+              <input
+                type="text"
+                value={addressDraft.line1}
+                onChange={(event) => updateDraftField("line1", event.target.value)}
+                placeholder="House no, street"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Address line 2</span>
+              <input
+                type="text"
+                value={addressDraft.line2}
+                onChange={(event) => updateDraftField("line2", event.target.value)}
+                placeholder="Area, locality"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Landmark</span>
+              <input
+                type="text"
+                value={addressDraft.landmark}
+                onChange={(event) => updateDraftField("landmark", event.target.value)}
+                placeholder="Nearby landmark"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">City</span>
+                <input
+                  type="text"
+                  value={addressDraft.city}
+                  onChange={(event) => updateDraftField("city", event.target.value)}
+                  placeholder="City"
+                  className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+                />
+              </label>
+
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">State</span>
+                <input
+                  type="text"
+                  value={addressDraft.state}
+                  onChange={(event) => updateDraftField("state", event.target.value)}
+                  placeholder="State"
+                  className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+                />
+              </label>
+            </div>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Pincode</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={addressDraft.pincode}
+                onChange={(event) => updateDraftField("pincode", event.target.value)}
+                placeholder="600049"
+                className="rounded-2xl border border-[#dfe3eb] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#2874f0]"
+              />
+            </label>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={closeAddressDrawer}
+              className="flex-1 rounded-full border border-[#dfe3eb] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 rounded-full bg-[#2874f0] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1f5fc1]"
+            >
+              Save address
+            </button>
+          </div>
+        </form>
+      </Drawer>
+      )}
+
+      {isLocationSheetOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label="Close location popup"
+            className="absolute inset-0 bg-black/45"
+            onClick={closeAddressDrawer}
+          />
+
+          <div className="relative w-full max-w-[430px] overflow-hidden rounded-2xl bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <h2 className="text-[1.15rem] font-semibold text-slate-900">Choose your location</h2>
+              <button
+                type="button"
+                onClick={closeAddressDrawer}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <span className="text-2xl leading-none">&times;</span>
+              </button>
+            </div>
+
+            <div className="px-5 py-5">
+              <p className="text-[15px] leading-6 text-slate-700">
+                Select a delivery location to see product availability and delivery options
+              </p>
+
+              {isSignedIn ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-[#dfe5ee] bg-[#f8fbff] p-4">
+                    <p className="text-sm font-semibold text-slate-900">Signed in as {currentUser}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Choose one of your saved delivery addresses or add a new one below.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAddressDraft(deliveryAddress)}
+                    className="flex w-full items-start gap-3 rounded-2xl border border-[#dfe5ee] bg-white p-4 text-left transition hover:bg-slate-50"
+                  >
+                    <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef4ff]">
+                      <IconLocationPin />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-slate-900">Saved delivery address</span>
+                      <span className="block text-sm leading-6 text-slate-600">
+                        {formatDeliveryLocation(deliveryAddress)} · {formatDeliverySummary(deliveryAddress)}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => router.push("/login")}
+                  className="mt-4 w-full rounded-full bg-[#ffd814] px-4 py-3 text-base font-medium text-slate-900 transition hover:bg-[#f7ca00]"
+                >
+                  Sign in to see your addresses
+                </button>
+              )}
+
+              <div className="my-5 flex items-center gap-3 text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                <span className="text-[15px] text-slate-500">or enter an Indian pincode</span>
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  saveAddress();
+                }}
+              >
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={addressDraft.pincode}
+                  onChange={(event) => updateDraftField("pincode", event.target.value)}
+                  placeholder="Pincode"
+                  className="min-w-0 flex-1 rounded-2xl border border-slate-300 px-4 py-3 text-[15px] outline-none transition placeholder:text-slate-400 focus:border-[#2874f0]"
+                />
+                <button
+                  type="submit"
+                  className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-base font-medium text-slate-900 transition hover:bg-slate-50"
+                >
+                  Apply
+                </button>
+              </form>
+
+              <button
+                type="button"
+                onClick={openMapPopup}
+                className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-[#e5eaf2] bg-[#f8fbff] p-4 text-left transition hover:bg-[#f2f7ff]"
+              >
+                <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${isLocationPinned ? "bg-[#08c16b]" : "bg-[#2874f0]"}`}>
+                  <IconLocationPin />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-semibold text-slate-900">
+                    {isLocationPinned ? "Location pinned" : "Pin your current location"}
+                  </span>
+                  <span className="block text-sm leading-6 text-slate-500">
+                    {isLocationPinned ? `Saved point: ${formatPinnedLocation(pinnedLocation)}` : "Tap to open map and pin your drop point."}
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isMapPopupOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label="Close map popup"
+            className="absolute inset-0 bg-black/45"
+            onClick={closeMapPopup}
+          />
+
+          <div className="relative w-full max-w-[460px] overflow-hidden rounded-[1.75rem] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-[1.15rem] font-semibold text-slate-900">Pin location on map</h2>
+                <p className="mt-1 text-sm text-slate-500">Click the button to capture your current delivery point.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeMapPopup}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <span className="text-2xl leading-none">&times;</span>
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="relative overflow-hidden rounded-[1.5rem] border border-[#dbe3ee] bg-[radial-gradient(circle_at_top_left,_rgba(40,116,240,0.18),_transparent_28%),linear-gradient(135deg,_#edf4ff_0%,_#f8fbff_45%,_#e6f7ee_100%)]">
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(40,116,240,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(40,116,240,0.08)_1px,transparent_1px)] bg-[size:32px_32px] opacity-70" />
+                <div
+                  className="relative min-h-[300px] cursor-crosshair p-4"
+                  onClick={(event) => {
+                    const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+                    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 8, 92);
+                    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 8, 92);
+                    setManualPinPoint({ x, y });
+                  }}
+                >
+                  <div className="absolute left-4 top-4 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+                    Tap anywhere to move the pin
+                  </div>
+
+                  <div
+                    className="absolute -translate-x-1/2 -translate-y-full drop-shadow-[0_12px_18px_rgba(15,23,42,0.18)]"
+                    style={{ left: `${manualPinPoint.x}%`, top: `${manualPinPoint.y}%` }}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="flex h-18 w-18 items-center justify-center rounded-full bg-white shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#08c16b]">
+                          <IconLocationPin />
+                        </span>
+                      </div>
+                      <div className="h-10 w-1 rounded-full bg-[#08c16b]/35" />
+                      <div className="rounded-full border border-white/80 bg-white/95 px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm">
+                        {mapPointToPinnedLocation(manualPinPoint).latitude.toFixed(5)}, {mapPointToPinnedLocation(manualPinPoint).longitude.toFixed(5)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[#e5eaf2] bg-[#f8fbff] p-4">
+                <p className="text-sm font-semibold text-slate-900">
+                  {pinnedLocation ? "Location already selected" : "No pin selected yet"}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  {pinnedLocation
+                    ? "Your current coordinates are ready. You can save them again or move to a new spot."
+                    : "Use your browser location to pin the address on the map."}
+                </p>
+              </div>
+
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeMapPopup}
+                  className="flex-1 rounded-full border border-[#dbe3ee] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveManualPinPoint();
+                    setIsMapPopupOpen(false);
+                  }}
+                  className="flex-1 rounded-full bg-[#2874f0] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1f5fc1]"
+                >
+                  Use this location
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={pinCurrentLocation}
+                className="mt-3 w-full rounded-full border border-[#dbe3ee] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Use current location instead
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -1,6 +1,6 @@
-import { StackHandler } from "@stackframe/stack";
-import { redirect } from "next/navigation";
-import { stackServerApp } from "../../../stack/server";
+import { getStackServerApp } from "../../../stack/server";
+
+export const dynamic = "force-dynamic";
 
 type StackRouteProps = {
   params: Promise<{
@@ -13,14 +13,21 @@ type StackRouteProps = {
 
 export default async function StackAuthHandler(props: StackRouteProps) {
   const params = await props.params;
+  const stackServerApp = getStackServerApp();
 
-  if (params.stack?.[0] === "sign-in" || params.stack?.[0] === "sign-up") {
-    redirect("/login");
+  if (!stackServerApp) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6 py-12 text-center text-sm text-neutral-600">
+        Stack Auth is not configured yet.
+      </div>
+    );
   }
+
+  const { HexclaveHandler } = await import("@hexclave/next");
 
   return (
     <div className="min-h-screen w-full">
-      <StackHandler app={stackServerApp} routeProps={props} />
+      <HexclaveHandler fullPage />
     </div>
   );
 }
